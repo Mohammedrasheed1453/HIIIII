@@ -212,26 +212,42 @@ def show_auth_ui():
         with col2:
             st.info("Extra content here.")
 def get_driver():
-    """ Initialize Selenium WebDriver in headless mode. """
+    """Initialize Selenium WebDriver with proper configuration"""
     try:
-        options = webdriver.ChromeOptions()
-        options.add_argument("--headless")  # ✅ Required for Streamlit Cloud
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-
-        from selenium import webdriver  
-        from selenium.webdriver.edge.service import Service  
-        from webdriver_manager.microsoft import EdgeChromiumDriverManager  
-
-        options = webdriver.EdgeOptions()  
-        options.add_argument("--headless")  # Run in headless mode (important for hosting)  
-        driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
-
+        options = Options()
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--start-maximized")
         
-        return driver
+        # For cloud deployment
+        if os.getenv("DEPLOY_ENV") == "cloud":
+            options.add_argument("--headless")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            return webdriver.Edge(options=options)
+        
+        # Local development with automatic driver management
+        service = Service(EdgeChromiumDriverManager().install())
+        return webdriver.Edge(service=service, options=options)
+    
     except Exception as e:
-        st.error(f"WebDriver Error: {e}")
-        return None  # Prevent crashes if WebDriver fails
+        st.error(f"WebDriver initialization failed: {str(e)}")
+        return None
+
+def initialize_gemini():
+    """Initialize Gemini API with proper configuration"""
+    try:
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        
+        # Verify available models
+        available_models = [m.name for m in genai.list_models() 
+                          if 'generateContent' in m.supported_generation_methods]
+        if not available_models:
+            raise ValueError("No valid Gemini models available")
+            
+        return genai.GenerativeModel('gemini-pro')
+    except Exception as e:
+        st.error(f"Gemini API initialization failed: {str(e)}")
+        return None
 
 
 # -------------------- #
@@ -447,16 +463,28 @@ else:
             if st.form_submit_button("Start Auto Apply", use_container_width=True):
                 designations = [d.strip() for d in designation_input.split(",") if d.strip()]
                 locations = [l.strip() for l in location_input.split(",") if l.strip()]
+                driver = get_driver()
+                model = initialize_gemini()
+        
+                if not driver or not model:
+                    st.error("Initialization failed - check dependencies")
+                    st.stop()
 
-                # Original Selenium automation logic
-                def login_naukri(driver, wait, credentials):
-                    driver.get('https://login.naukri.com/')
-                    try:
-                        wait.until(EC.presence_of_element_located((By.ID, 'usernameField'))).send_keys(credentials['email'])
-                        wait.until(EC.presence_of_element_located((By.ID, 'passwordField'))).send_keys(credentials['password'])
-                        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Login']"))).click()
-                    except Exception as e:
-                        st.error(f"Login failed: {str(e)}")
+
+                try:
+                    def login_naukri(driver, wait, credentials):
+                        driver.get('https://login.naukri.com/')
+                    
+                        try:
+                            wait.until(EC.presence_of_element_located(
+                            (By.ID, 'usernameField'))).send_keys(credentials['email'])
+                            driver.find_element(By.ID, 'passwordField').send_keys(credentials['password'])
+                            driver.find_element(By.XPATH, "//button[text()='Login']").click()
+                            time.sleep(2)  # Allow for login processing
+                            return True
+                        except Exception as e:
+                            st.error(f"Login failed: {str(e)}")
+                            return False
 
                 def construct_url_for_combo(designation, location, job_type, page):
                     base_url = "https://www.naukri.com"
