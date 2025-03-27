@@ -219,8 +219,14 @@ def get_driver():
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
 
-        service = Service(ChromeDriverManager().install())  # ✅ Auto-install ChromeDriver
-        driver = webdriver.Chrome(service=service, options=options)
+        from selenium import webdriver  
+        from selenium.webdriver.edge.service import Service  
+        from webdriver_manager.microsoft import EdgeChromiumDriverManager  
+
+        options = webdriver.EdgeOptions()  
+        options.add_argument("--headless")  # Run in headless mode (important for hosting)  
+        driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
+
         
         return driver
     except Exception as e:
